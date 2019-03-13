@@ -1,0 +1,120 @@
+---
+title: "Game_analysis_313"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+##问题一：留存问题。
+
+#用户留存与渠道关系分析
+
+游戏为了获取新用户，一般都会在外部渠道进行资源投放，例如微信，QQ，搜索引擎，游戏门户网站等等。外部渠道的的投放都是需要真金白银的支持，所以对获客渠道的分析至关重要，它直接决定我们能否将一定的预算效果最大化。所以我们需要做一个不同渠道引流的玩家跟留存率的关系分析，以确定企业的资源得到了最大化的利用。
+
+#dataset overview
+```{r, results='hide'}
+setwd("~/Documents/GitHub/Game_DataMining_With_R/nino/project1")
+library(readr)
+library(caret)
+login <- read.csv("/Users/nino/Documents/GitHub/Game_DataMining_With_R/nino/project1/logindata.csv", fileEncoding = "GBK")
+str(login)
+summary(login)
+head(login)
+dim(login)
+colnames(login)
+```
+
+从数据集的总结来看，该数据集包括30000条数据，7个变量。
+分别是："渠道名称" "游戏名称" "是否付费" "性别" "年龄" "登录天数" "登录次数"。
+
+另外需要注意的是，除了年龄变量以外其他变量应为factor类变量，所以进行相应的转换。
+```{r}
+dummy <- dummyVars(~ ., data = login)
+dummyTsrf <- data.frame(predict(dummy, newdata = login))
+```
+
+通过函数求出变量间的相关系数。
+```{r}
+cor.prob <- function (X, dfr = nrow(X) - 2) {
+  R <- cor(X, use="pairwise.complete.obs")
+  above <- row(R) < col(R)
+  r2 <- R[above]^2
+  Fstat <- r2 * dfr/(1 - r2)
+  R[above] <- 1 - pf(Fstat, 1, dfr)
+  R[row(R) == col(R)] <- NA
+  R
+}
+flattenSquareMatrix <- function(m) {
+  if( (class(m) != "matrix") | (nrow(m) != ncol(m))) stop("Must be a square matrix.") 
+  if(!identical(rownames(m), colnames(m))) stop("Row and column names must be equal.")
+  ut <- upper.tri(m)
+  data.frame(i = rownames(m)[row(m)[ut]],
+             j = rownames(m)[col(m)[ut]],
+             cor=t(m)[ut],
+             p=m[ut])
+}
+corMasterList <- flattenSquareMatrix(cor.prob(dummyTsrf))
+corList <- corMasterList[order(-abs(corMasterList$cor)), ]
+print(head(corList, 20))
+```
+
+通过计算发现，
+
+1，渠道A与登陆次数一次的相关系数很大，初步怀疑渠道A的用户黏性较差。但因为相关系数并不一定代表着因果关系，还需进一步分析。
+
+2，游戏E与年龄有负相关关系，说明游戏E的游戏用户年龄较小。
+
+3，游戏C与用户是否付费有正相关关系，说明游戏C的玩家付费意愿相对较高。
+
+#可视化
+```{r}
+paycor <- subset(corList, (abs(cor) > 0.04 & i %in% c("是否付费.是")))
+sub <- as.character(paycor$j)
+library(corrplot)
+plotcor <- corrplot.mixed(cor(dummyTsrf[, c("是否付费.是", sub)]), 
+ lower = "ellipse", upper = "number", tl.pos = "lt", diag = "u", family='STXihei')
+```
+
+通过绘制与“是否付费.是”相关系数大于0.4的图发现
+
+1，男性比女性更容易付费。
+
+2，年龄越大的玩家越容易付费。
+
+3，登录次数越多越容易付费。
+
+##问题二：个性化推荐。
+
+#不同玩家的消费偏好分析。
+
+之前在面试中提到了对玩家的行为数据进行分析并做个性化推荐。当时我回答了如何做第一步，用户的分类，这里我想展现一下为了支持产品研发，后续能做的一些分析研究。
+
+在对玩家进行分类以后我们可以对不同类型的玩家的消费趋向做分析以达到精细化推荐的目的。例如给喜欢买金币的玩家推送金币活动，喜欢刷喇叭的玩家推送喇叭礼包等。
+
+#dataset overview
+
+```{r}
+library(ca)
+playershop <- read.csv("/Users/nino/Documents/GitHub/Game_DataMining_With_R/nino/project1/玩家喜好分析数据.csv", T)
+rownames(playershop) <- playershop[ ,1]
+summary(playershop)
+head(playershop)
+```
+
+通过数据集总计，我们可以很直观的看到该数据集是一个不同类型玩家（5类）在游戏对不同道具(20类）的消费数据。
+
+#可视化
+```{r}
+playershop.ca <- ca(playershop[, -1])
+plot(playershop.ca$rowcoord[,1],playershop.ca$rowcoord[,2],pch = 16,col = rgb(0.6,0.3,0.2),
+     xlim = c(min(playershop.ca$rowcoord[,1]),max(playershop.ca$rowcoord[,1])+0.3),
+     main = "玩家购买物品偏好分析" ,family = "STXihei")
+text(playershop.ca$rowcoord[,1],playershop.ca$rowcoord[,2],labels = playershop.ca$rownames,
+     cex = 0.8,pos = 4,col = rgb(0.6,0.3,0.2), family = "STXihei")
+points(playershop.ca$colcoord[,1],playershop.ca$colcoord[,2],pch = 17,col = "#007e7e", family = "STXihei")
+text(playershop.ca$colcoord[,1],playershop.ca$colcoord[,2],labels = playershop.ca$colnames,
+     cex = 0.8,pos = 4,col = "#007e7e",family = "STXihei")
+```
+
+通过简单的对应分析，绘图，我们可以很直观的看到不同类型的玩家喜欢购买的物品偏好。如C类玩家喜欢买角色，B类玩家喜欢买金币等，为之后的个性化推荐打下基础。
